@@ -17,8 +17,8 @@
 interface
 
 uses
-  System.Classes, System.SysUtils,
-  System.Generics.Collections,
+  System.Classes, System.SysUtils, System.SyncObjs,
+  System.Generics.Collections, System.Generics.Defaults,
   LA.Data.Updater.Intf,
   LA.Data.Link,
   LA.Threads, LA.Net.Connector, LA.Types.Monitoring;
@@ -38,8 +38,11 @@ type
       TDataUpdateThread = class(TDCIntervalThread)
       private
         FUpdater: TDataUpdater;
-        FIDs: TIDArr;
+        FIDs: TSIDArr;
+        procedure InitIDs;
       protected
+        procedure DoUpdate;
+        procedure Initialize; override;
         procedure ProcessTimer; override;
       public
         constructor Create(CreateSuspended: Boolean; aUpdater: TDataUpdater; aInterval: Int64); overload;
@@ -51,29 +54,32 @@ type
     FThread: TDataUpdateThread;
     FInterval: Int64;
     FConnector: TDCCustomConnector;
-    function GetActive: Boolean;
-    procedure SetActive(const Value: Boolean);
+    FOnUpdate: TNotifyEvent;
+
+    // управление потоком обновления
     procedure Start;
     procedure Stop;
+    function GetActive: Boolean;
+    procedure SetActive(const Value: Boolean);
+
     procedure SetInterval(const Value: Int64);
-    procedure DoThreadTerminated(aSender: TObject);
     procedure SetConnector(const Value: TDCCustomConnector);
   protected
     procedure DoNotify(const aLink: TDCLink); virtual;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
+
     // подключение, отключение, уведомление наблюдателей
     procedure Attach(const aLink: TDCLink);
     procedure Detach(const aLink: TDCLink);
     procedure Notify;
 
-    // формирование строки запрашиваемых адресов
-    function GetRequestedAddresses: string;
     // разбор ответа сервера
     procedure ProcessServerResponce(const aResponce: string);
 
-    // список линков, в которых есть ссылки на наблюдателей
+    // список линков, в которых есть ссылки на наблюдателей (отсортирован по ID)
+    // разрешаем линки с одинаковым ID, но в запросе оставляем только первый
     property Links: TObjectList<TDCLink> read FLinks;
   published
     // подключение к серверу Мониторинга
@@ -82,6 +88,8 @@ type
     property Active: Boolean read GetActive write SetActive stored False;
     // период опроса сервера, мс
     property Interval: Int64 read FInterval write SetInterval;
+    // дополнительное событие, которое вызывается после обновления линков
+    property OnUpdate: TNotifyEvent read FOnUpdate write FOnUpdate;
   end;
 
 
@@ -93,10 +101,19 @@ uses
 
 
 procedure TDataUpdater.Attach(const aLink: TDCLink);
+var
+  aInsertIndex: Integer;
 begin
   FLock.BeginWrite;
   try
-    FLinks.Add(aLink);
+    if FLinks.Count = 0 then
+      FLinks.Add(aLink)
+    else
+    begin
+      FLinks.BinarySearch(aLink, aInsertIndex);
+      FLinks.Insert(aInsertIndex, aLink);
+    end;
+
     FLinksChanged := True;
   finally
     FLock.EndWrite;
@@ -108,7 +125,13 @@ begin
   inherited Create(AOwner);
   FInterval := DefInterval;
   FLock := TMREWSync.Create;
-  FLinks := TObjectList<TDCLink>.Create;
+
+  FLinks := TObjectList<TDCLink>.Create(TDelegatedComparer<TDCLink>.Create(
+    function (const aLeft, aRight: TDCLink): Integer
+    begin
+      Result := CompareStr(aLeft.GetID, aRight.GetID);
+    end)
+  , True);
 end;
 
 destructor TDataUpdater.Destroy;
@@ -135,28 +158,15 @@ begin
   aLink.Notify;
 end;
 
-procedure TDataUpdater.DoThreadTerminated(aSender: TObject);
-begin
-  FreeAndNil(FThread);
-end;
+//procedure TDataUpdater.DoThreadTerminated(aSender: TObject);
+//begin
+////  FreeAndNil(FThread);
+//  FThread := nil;
+//end;
 
 function TDataUpdater.GetActive: Boolean;
 begin
   Result := Assigned(FThread);
-end;
-
-function TDataUpdater.GetRequestedAddresses: string;
-var
-  aLink: TDCLink;
-begin
-  Result := '';
-  FLock.BeginRead;
-  try
-    for aLink in FLinks do
-      Result := Result + aLink.GetID + ';';
-  finally
-    FLock.EndRead;
-  end;
 end;
 
 procedure TDataUpdater.Notify;
@@ -199,7 +209,7 @@ begin
         FLinks[aLinkIndex].SetData(Copy(aResponce, p1, p2 - p1));
         p1 := p2 + 1;
         if aLinkIndex = aLinkMaxIndex then
-          Exit;
+          Break;
       end;
     end;
 
@@ -218,7 +228,7 @@ end;
 
 procedure TDataUpdater.SetConnector(const Value: TDCCustomConnector);
 begin
-  // нельзя изменить коннктор, во время работы потока
+  // нельзя изменить коннeктор, во время работы потока
   if Active then
     Exit;
 
@@ -240,34 +250,99 @@ begin
   if Active then
     Exit;
 
+  // поток не может завершиться сам ни при каких условиях,
+  // только Stop корректно завершает и очищает поток
   FThread := TDataUpdateThread.Create(True, Self, Interval);
-  FThread.OnTerminate := DoThreadTerminated;
+  FThread.FreeOnTerminate := False;
   FThread.Start;
 end;
 
 procedure TDataUpdater.Stop;
 begin
-  if Active then
+  if not Active then
     Exit;
 
   FThread.Terminate;
   FThread.WaitFor;
+  FThread.Free;
+  FThread := nil;
 end;
 
 { TDataUpdater.TDataUpdateThread }
 
 constructor TDataUpdater.TDataUpdateThread.Create(CreateSuspended: Boolean; aUpdater: TDataUpdater; aInterval: Int64);
 begin
-  inherited Create(CreateSuspended, aInterval);
+  inherited CreateInterval(CreateSuspended, aInterval);
   FUpdater := aUpdater;
+  FEvent.SetEvent;
+end;
+
+procedure TDataUpdater.TDataUpdateThread.DoUpdate;
+begin
+  FUpdater.OnUpdate(FUpdater);
+end;
+
+procedure TDataUpdater.TDataUpdateThread.InitIDs;
+begin
+  FUpdater.FLock.BeginRead;
+  try
+    SetLength(FIDs, FUpdater.FLinks.Count);
+    for var i := 0 to FUpdater.FLinks.Count - 1 do
+      FIDs[i] := FUpdater.FLinks[i].GetID;
+  finally
+    FUpdater.FLock.EndRead;
+  end;
+end;
+
+procedure TDataUpdater.TDataUpdateThread.Initialize;
+begin
+  inherited;
+  FUpdater.FLinksChanged := True;
 end;
 
 procedure TDataUpdater.TDataUpdateThread.ProcessTimer;
+var
+  r: string;
+  aLinkIndex, aDataIndex, aDataCount: Integer;
 begin
-  // запрашиваем данные с сервера
-  FUpdater.Connector.GroupSensorDataExtByID(FIDs);
-  // обновляем линки
-  // уведомляем наблюдателей
+  try
+    if FUpdater.FLinksChanged then
+    begin
+      InitIDs;
+      FUpdater.FLinksChanged := False;
+    end;
+
+    /// получаем данные с сервера
+    ///  в случае ошибки, отключаемся и выходим - в слудующей инерации повторим попытку подключения и запрос данных
+    try
+      if not FUpdater.Connector.Connected then
+        FUpdater.Connector.Connect;
+      r := FUpdater.Connector.SensorsDataAsText(FIDs, True);
+      // если запрос выполнен без ошибок, то нет необходимости повторно передавать IDs (сервер их запомнил)
+      SetLength(FIDs, 0);
+    except
+      on e: Exception do
+      begin
+        // в случае ошибки, нужно будет заново подключаться к серверу и передавать ID запрашиваемых датчиков
+        FUpdater.Connector.Disconnect;
+        FUpdater.FLinksChanged := True;
+        Exit;
+      end;
+    end;
+
+    /// обрабатываем результат запроса
+    FUpdater.ProcessServerResponce(r);
+
+    /// уведомляем подписчиков
+    Queue(FUpdater.Notify);
+
+    /// в OnUpdate можем выполнить дополнительные действия с новыми данными
+    if Assigned(FUpdater.OnUpdate) then
+      Queue(DoUpdate);
+  except
+    on e: Exception do
+      ;
+  end;
 end;
 
 

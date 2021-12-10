@@ -21,15 +21,19 @@ type
     [TestCase('TestTryConnectArrangeAddr','host1:1;dc.tdc.org.ua:80,dc.tdc.org.ua:80;host1:1;')]
     [TestCase('TestTryConnectArrangeAddr','dc.tdc.org.ua:80;host1:1,dc.tdc.org.ua:80;host1:1')]
     procedure TestTryConnectArrangeAddr(const aAddrIn, aAddrOut: string);
+
   end;
 
 implementation
 
+uses
+  La.Tests.Net.Consts;
+
 procedure TTestTDCCustomConnector.Setup;
 begin
   FConnector := TDCHttpConnector.Create(nil);
-  FConnector.UserName := 'Лагодный';
-  FConnector.Password := '314';
+  FConnector.UserName := cUserName;
+  FConnector.Password := cPassword;
 end;
 
 procedure TTestTDCCustomConnector.TearDown;

@@ -11,8 +11,14 @@ unit LA.Net.Connector;
 interface
 
 uses
-  System.Classes, System.SysUtils,
+  System.Classes, System.SysUtils, System.SyncObjs,
   LA.Net.Connector.Intf, LA.Types.Monitoring;
+
+resourcestring
+  sResAddressIsEmpty = 'Address is empty. The format of Address should be: host1:port1;host2:port2 etc';
+  sResAddressIsBadFmt = 'Check Address (%s). The format of Address should be: host1:port1;host2:port2 etc';
+
+
 const
   cDefConnectTimeout = 2000;
   cDefReadTimeout = 60000;
@@ -37,6 +43,7 @@ type
   ///  его наследники реализуют различные протоколы взаимодейтвия с сервером
   TDCCustomConnector = class(TComponent, IDCConnector)
   private
+    FClientLock: TCriticalSection;
     FAddress: string;
     FUserName: string;
     FPassword: string;
@@ -66,7 +73,7 @@ type
 
     /// пытаемся подключиться по указанному адресу
     ///  если подключение невозможно вызываем исключение
-    procedure TryConnectTo(const aHost: string; const aPort: Integer); virtual; abstract;
+    procedure TryConnectTo(const aAddrLine: string); virtual; abstract;
 
     /// перебираем все возможные варианты
     ///  если подключение невозможно вызываем исключение (из последнего варианта)
@@ -80,11 +87,15 @@ type
     procedure DoConnect; virtual; abstract;
     procedure DoDisconnect; virtual; abstract;
   public
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+
     procedure Connect; virtual; abstract;
     procedure Disconnect; virtual; abstract;
 
-    function SensorValue(const SID: String): String; virtual; abstract;
-    function GroupSensorDataExtByID(const IDs: TIDArr): TDataRecExtArr; virtual; abstract;
+    function SensorsDataAsText(const IDs: TSIDArr; aUseCache: Boolean): string; virtual; abstract;
+
+    property ClientLock: TCriticalSection read FClientLock;
   published
     /// параметры подключения в формате Host:Port
     ///  через точку с запятой (;) можно добавить альтернативые адреса: host1:port1;host2:port2;host3:port3
@@ -118,16 +129,23 @@ type
 
 implementation
 
-resourcestring
-  sResAddressIsEmpty = 'Address is empty. The format of Address should be: host1:port1;host2:port2 etc';
-  sResAddressIsBadFmt = 'Check Address (%s). The format of Address should be: host1:port1;host2:port2 etc';
-
-
 { TDCCustomConnector }
 procedure TDCCustomConnector.CheckConnection;
 begin
   if not Connected then
     DoConnect;
+end;
+
+constructor TDCCustomConnector.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  FClientLock := TCriticalSection.Create;
+end;
+
+destructor TDCCustomConnector.Destroy;
+begin
+  FClientLock.Free;
+  inherited;
 end;
 
 procedure TDCCustomConnector.DoPropChanged;
@@ -185,51 +203,40 @@ end;
 
 procedure TDCCustomConnector.TryConnect;
 var
-  aAddressList, aParams: TStringList;
   i: Integer;
+  aAddressList: TStringList;
 begin
   if Address = '' then
     raise EDCConnectorBadAddress.Create(sResAddressIsEmpty);
 
   aAddressList := TStringList.Create;
-  aParams := TStringList.Create;
   try
     aAddressList.LineBreak := ';';
-    aParams.LineBreak := ':';
     aAddressList.Text := Address;
     for i := 0 to aAddressList.Count - 1 do
     begin
-      aParams.Text := aAddressList[i];
-      if aParams.Count = 2 then
-      begin
-        try
-          TryConnectTo(aParams[0], StrToInt(aParams[1]));
-          /// подключение прошло успешно
-          ///  передвинем успешные параметры подключения в начало списка для более быстрого переподключения
-          if i <> 0 then
-          begin
-            aAddressList.Move(i, 0);
-            FAddress := aAddressList.Text;
-          end;
-          /// уходим
-          Exit;
-        except
-          on Exception do
-          begin
-            /// если мы дошли до последнего варианта и так и не смогли подключиться,
-            ///  то поднимаем последнее исключение, иначе продолжаем перебор
-            if i = aAddressList.Count - 1 then
-              raise
-          end;
+      try
+        TryConnectTo(aAddressList[i]);
+        /// подключение прошло успешно
+        ///  передвинем успешные параметры подключения в начало списка для более быстрого переподключения
+        if i <> 0 then
+        begin
+          aAddressList.Move(i, 0);
+          FAddress := aAddressList.Text;
         end;
-      end
-      else
-        raise EDCConnectorBadAddress.CreateFmt(sResAddressIsBadFmt, [Address]);
+        /// уходим
+        Exit;
+      except
+        on Exception do
+        begin
+          /// если мы дошли до последнего варианта и так и не смогли подключиться,
+          ///  то поднимаем последнее исключение, иначе продолжаем перебор
+          if i = aAddressList.Count - 1 then
+            raise
+        end;
+      end;
     end;
-
-
   finally
-    aParams.Free;
     aAddressList.Free;
   end;
 end;

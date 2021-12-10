@@ -17,27 +17,26 @@ type
   [ObservableMember('Status')]
   TDCSensor = class(TComponent) //, IDCObserver)
   private
+    FID: string;
     FData: string;
-    FSID: string;
     FValue: string;
     FTimestamp: TDateTime;
     FStatus: string;
     FEnabled: Boolean;
     FUpdateCounter: Integer;
     FIsDataChanged: Boolean;
-    procedure SetSID(const Value: string);
     procedure SetValue(const Value: string);
     procedure SetStatus(const Value: string);
     procedure SetTimestamp(const Value: TDateTime);
     procedure SetEnabled(const Value: Boolean);
   private
     procedure DataChanged;
+    procedure SetID(const Value: string);
   protected
     function CanObserve(const ID: Integer): Boolean; override;
     procedure ObserverAdded(const ID: Integer; const Observer: IObserver); override;
     procedure ObserverToggle(const AObserver: IObserver; const Value: Boolean);
   public
-    // реализация IDCObserver
     function GetID: string;
     procedure SetData(const aData: string);
 
@@ -47,7 +46,7 @@ type
     procedure EndUpdate;
     procedure UpdateData(const aValue: string; aTimestamp: TDateTime; const aStatus: string);
   published
-    property SID: string read FSID write SetSID;
+    property ID: string read GetID write SetID;
 
     property Value: string read FValue write SetValue;
     property Timestamp: TDateTime read FTimestamp write SetTimestamp;
@@ -61,7 +60,7 @@ type
 implementation
 
 uses
-  System.SysUtils;
+  System.SysUtils, System.DateUtils;
 
 procedure TDCSensor.BeginUpdate;
 begin
@@ -86,9 +85,7 @@ begin
 
   if FUpdateCounter = 0 then
   begin
-    if FIsDataChanged then
-      TLinkObservers.ControlChanged(Self);
-
+    TLinkObservers.ControlChanged(Self);
     FIsDataChanged := False;
   end
   else
@@ -97,19 +94,36 @@ end;
 
 procedure TDCSensor.EncodeData(const aData: string);
 begin
-
+  var a := aData.Split([';']);
+  var L := Length(a);
+  if L >= 2 then
+  begin
+    if a[0] = ID then
+    begin
+      FValue := a[1];
+      if L >= 3 then
+      begin
+        FStatus := a[2];
+        if L >= 4 then
+          FTimestamp := ISO8601ToDate(a[2])
+        else
+          FTimestamp := Now;
+      end
+      else
+    end;
+  end;
 end;
 
 procedure TDCSensor.EndUpdate;
 begin
   Dec(FUpdateCounter);
-  if FUpdateCounter = 0 then
+  if (FUpdateCounter = 0) and (FIsDataChanged) then
     DataChanged;
 end;
 
 function TDCSensor.GetID: string;
 begin
-  Result := SID;
+  Result := FID;
 end;
 
 procedure TDCSensor.ObserverAdded(const ID: Integer; const Observer: IObserver);
@@ -135,7 +149,8 @@ procedure TDCSensor.SetData(const aData: string);
 begin
   if aData <> FData then
   begin
-    EncodeData(aData);
+    FData := aData;
+    EncodeData(FData);
     DataChanged;
   end;
 end;
@@ -145,9 +160,9 @@ begin
   FEnabled := Value;
 end;
 
-procedure TDCSensor.SetSID(const Value: string);
+procedure TDCSensor.SetID(const Value: string);
 begin
-  FSID := Value;
+  FID := Value;
 end;
 
 procedure TDCSensor.SetStatus(const Value: string);
