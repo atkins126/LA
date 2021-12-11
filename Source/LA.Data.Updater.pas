@@ -19,7 +19,8 @@ interface
 uses
   System.Classes, System.SysUtils, System.SyncObjs,
   System.Generics.Collections, System.Generics.Defaults,
-  LA.Data.Updater.Intf,
+  LA.Data.Source.Intf,
+  LA.Data.Source,
   LA.Data.Link,
   LA.Threads, LA.Net.Connector, LA.Types.Monitoring;
 
@@ -28,7 +29,7 @@ type
   /// <summary>
   ///  Объект, который получает данные из Мониторинга и уведомляет подписчиков
   /// </summary>
-  TDataUpdater = class(TComponent, IDCObservable<TDCLink>)
+  TDataUpdater = class(TLADataSource)
   private
     const
       MinInterval = 100;
@@ -48,9 +49,9 @@ type
         constructor Create(CreateSuspended: Boolean; aUpdater: TDataUpdater; aInterval: Int64); overload;
       end;
   private
-    FLock: TMREWSync;
-    FLinks: TObjectList<TDCLink>;
-    FLinksChanged: Boolean;
+//    FLock: TMREWSync;
+//    FLinks: TObjectList<TLALink>;
+//    FLinksChanged: Boolean;
     FThread: TDataUpdateThread;
     FInterval: Int64;
     FConnector: TDCCustomConnector;
@@ -64,23 +65,23 @@ type
 
     procedure SetInterval(const Value: Int64);
     procedure SetConnector(const Value: TDCCustomConnector);
-  protected
-    procedure DoNotify(const aLink: TDCLink); virtual;
+//  protected
+//    procedure DoNotify(const aLink: TLALink); virtual;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
 
-    // подключение, отключение, уведомление наблюдателей
-    procedure Attach(const aLink: TDCLink);
-    procedure Detach(const aLink: TDCLink);
-    procedure Notify;
+//    // подключение, отключение, уведомление наблюдателей
+//    procedure Attach(const aLink: TLALink);
+//    procedure Detach(const aLink: TLALink);
+//    procedure Notify;
 
     // разбор ответа сервера
     procedure ProcessServerResponce(const aResponce: string);
 
-    // список линков, в которых есть ссылки на наблюдателей (отсортирован по ID)
-    // разрешаем линки с одинаковым ID, но в запросе оставляем только первый
-    property Links: TObjectList<TDCLink> read FLinks;
+//    // список линков, в которых есть ссылки на наблюдателей (отсортирован по ID)
+//    // разрешаем линки с одинаковым ID, но в запросе оставляем только первый
+//    property Links: TObjectList<TLALink> read FLinks;
   published
     // подключение к серверу Мониторинга
     property Connector: TDCCustomConnector read FConnector write SetConnector;
@@ -100,63 +101,63 @@ uses
   System.Math;
 
 
-procedure TDataUpdater.Attach(const aLink: TDCLink);
-var
-  aInsertIndex: Integer;
-begin
-  FLock.BeginWrite;
-  try
-    if FLinks.Count = 0 then
-      FLinks.Add(aLink)
-    else
-    begin
-      FLinks.BinarySearch(aLink, aInsertIndex);
-      FLinks.Insert(aInsertIndex, aLink);
-    end;
-
-    FLinksChanged := True;
-  finally
-    FLock.EndWrite;
-  end;
-end;
+//procedure TDataUpdater.Attach(const aLink: TLALink);
+//var
+//  aInsertIndex: Integer;
+//begin
+//  FLock.BeginWrite;
+//  try
+//    if FLinks.Count = 0 then
+//      FLinks.Add(aLink)
+//    else
+//    begin
+//      FLinks.BinarySearch(aLink, aInsertIndex);
+//      FLinks.Insert(aInsertIndex, aLink);
+//    end;
+//
+//    FLinksChanged := True;
+//  finally
+//    FLock.EndWrite;
+//  end;
+//end;
 
 constructor TDataUpdater.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
   FInterval := DefInterval;
-  FLock := TMREWSync.Create;
-
-  FLinks := TObjectList<TDCLink>.Create(TDelegatedComparer<TDCLink>.Create(
-    function (const aLeft, aRight: TDCLink): Integer
-    begin
-      Result := CompareStr(aLeft.GetID, aRight.GetID);
-    end)
-  , True);
+//  FLock := TMREWSync.Create;
+//
+//  FLinks := TObjectList<TLALink>.Create(TDelegatedComparer<TLALink>.Create(
+//    function (const aLeft, aRight: TLALink): Integer
+//    begin
+//      Result := CompareStr(aLeft.GetID, aRight.GetID);
+//    end)
+//  , True);
 end;
 
 destructor TDataUpdater.Destroy;
 begin
   Active := False;
-  FLinks.Free;
-  FLock.Free;
+//  FLinks.Free;
+//  FLock.Free;
   inherited;
 end;
 
-procedure TDataUpdater.Detach(const aLink: TDCLink);
-begin
-  FLock.BeginWrite;
-  try
-    FLinks.Remove(aLink);
-    FLinksChanged := True;
-  finally
-    FLock.EndWrite;
-  end;
-end;
+//procedure TDataUpdater.Detach(const aLink: TLALink);
+//begin
+//  FLock.BeginWrite;
+//  try
+//    FLinks.Remove(aLink);
+//    FLinksChanged := True;
+//  finally
+//    FLock.EndWrite;
+//  end;
+//end;
 
-procedure TDataUpdater.DoNotify(const aLink: TDCLink);
-begin
-  aLink.Notify;
-end;
+//procedure TDataUpdater.DoNotify(const aLink: TLALink);
+//begin
+//  aLink.Notify;
+//end;
 
 //procedure TDataUpdater.DoThreadTerminated(aSender: TObject);
 //begin
@@ -169,18 +170,18 @@ begin
   Result := Assigned(FThread);
 end;
 
-procedure TDataUpdater.Notify;
-var
-  aLink: TDCLink;
-begin
-  FLock.BeginRead;
-  try
-    for aLink in FLinks do
-      DoNotify(aLink);
-  finally
-    FLock.EndRead;
-  end;
-end;
+//procedure TDataUpdater.Notify;
+//var
+//  aLink: TLALink;
+//begin
+//  FLock.BeginRead;
+//  try
+//    for aLink in FLinks do
+//      DoNotify(aLink);
+//  finally
+//    FLock.EndRead;
+//  end;
+//end;
 
 procedure TDataUpdater.ProcessServerResponce(const aResponce: string);
 const
