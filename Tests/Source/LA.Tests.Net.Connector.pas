@@ -10,7 +10,7 @@ type
   [TestFixture]
   TTestTDCCustomConnector = class
   private
-    FConnector: TDCHttpConnector;
+    FConnector: TLAHttpConnector;
   public
     [Setup]
     procedure Setup;
@@ -18,8 +18,8 @@ type
     procedure TearDown;
 
     [Test]
-    [TestCase('TestTryConnectArrangeAddr','host1:1;dc.tdc.org.ua:80,dc.tdc.org.ua:80;host1:1;')]
-    [TestCase('TestTryConnectArrangeAddr','dc.tdc.org.ua:80;host1:1,dc.tdc.org.ua:80;host1:1')]
+    [TestCase('TestTryConnectArrangeAddr','host1:1;https://dc.tdc.org.ua,https://dc.tdc.org.ua;host1:1;')]
+    [TestCase('TestTryConnectArrangeAddr','https://dc.tdc.org.ua;host1:1,https://dc.tdc.org.ua;host1:1')]
     procedure TestTryConnectArrangeAddr(const aAddrIn, aAddrOut: string);
 
   end;
@@ -31,7 +31,7 @@ uses
 
 procedure TTestTDCCustomConnector.Setup;
 begin
-  FConnector := TDCHttpConnector.Create(nil);
+  FConnector := TLAHttpConnector.Create(nil);
   FConnector.UserName := cUserName;
   FConnector.Password := cPassword;
 end;

@@ -11,7 +11,7 @@ type
   [TestFixture]
   TTest_TDCHttpConnector = class
   private
-    FConnector: TDCHttpConnector;
+    FConnector: TLAHttpConnector;
   public
     [Setup]
     procedure Setup;
@@ -32,10 +32,9 @@ type
     [TestCase('EmpttyAddrRaiseException', '')]
     procedure TestBadAddrRaiseException(const AddrLine: string);
 //    [Test]
-    [TestCase('SensorsDataAsText', '41204,41204;d:\_services\DC\Data\UploadFile\Demo.scp;'#$D)]
+    [TestCase('SensorsDataAsText', '41204,41204;194;d:\_services\DC\Data\UploadFile\Demo.scp;'#$D)]
 //    [TestCase('TestSensorValue', '5,74332')]
     procedure SensorsDataAsText(const aSensorAddr, aSensorData: string);
-
 
   end;
 
@@ -47,7 +46,7 @@ uses
 
 procedure TTest_TDCHttpConnector.Setup;
 begin
-  FConnector := TDCHttpConnector.Create(nil);
+  FConnector := TLAHttpConnector.Create(nil);
   FConnector.UserName := cUserName;
   FConnector.Password := cPassword;
   FConnector.Address := cHttpAddr;
@@ -60,7 +59,7 @@ end;
 
 procedure TTest_TDCHttpConnector.TestAddrEncode(const AddrLine, Host, Port: string; Https: Boolean);
 var
-  aRec: TDCHttpAddr;
+  aRec: TLAHttpAddr;
 begin
   aRec.InitFrom(AddrLine);
   Assert.AreEqual(Host, aRec.Host);
@@ -70,7 +69,7 @@ end;
 
 procedure TTest_TDCHttpConnector.TestBadAddrRaiseException(const AddrLine: string);
 var
-  aRec: TDCHttpAddr;
+  aRec: TLAHttpAddr;
 begin
   Assert.WillRaise(
     procedure
